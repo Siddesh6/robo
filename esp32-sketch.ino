@@ -527,6 +527,107 @@ void handleWebSocketHandshake() {
   }
 }
 
+// REST HTTP Movement command handler
+void handleMove() {
+  setCORSHeaders();
+  if (server.hasArg("dir")) {
+    String direction = server.arg("dir");
+    int speed = server.hasArg("speed") ? server.arg("speed").toInt() : 80;
+    
+    Serial.printf("HTTP MOVE: %s at speed %d%%\n", direction.c_str(), speed);
+    
+    // Forward movement command to Arduino Uno over Serial1
+    Serial1.printf("MOVE:%s:%d\n", direction.c_str(), speed);
+    
+    // Render movement feedback on OLED
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 0);
+    display.println("Motor Drive Status:");
+    display.setTextSize(2);
+    display.setCursor(0, 16);
+    display.println(direction);
+    display.setTextSize(1);
+    display.setCursor(0, 40);
+    display.printf("Speed: %d%%\n", speed);
+    display.setCursor(0, 56);
+    display.print("IP: ");
+    display.print(WiFi.localIP().toString());
+    display.display();
+    
+    server.send(200, "text/plain", "OK");
+  } else {
+    server.send(400, "text/plain", "Missing 'dir' parameter");
+  }
+}
+
+// REST HTTP Speed command handler
+void handleSpeed() {
+  setCORSHeaders();
+  if (server.hasArg("val")) {
+    int speed = server.arg("val").toInt();
+    Serial.printf("Throttling Speed: %d%%\n", speed);
+    server.send(200, "text/plain", "OK");
+  } else {
+    server.send(400, "text/plain", "Missing 'val' parameter");
+  }
+}
+
+// REST HTTP Mode command handler
+void handleMode() {
+  setCORSHeaders();
+  if (server.hasArg("val")) {
+    String mode = server.arg("val");
+    Serial.printf("Robot Mode Select: %s\n", mode.c_str());
+    
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 0);
+    display.println("Operation Mode:");
+    display.setTextSize(2);
+    display.setCursor(0, 20);
+    display.println(mode);
+    display.setTextSize(1);
+    display.setCursor(0, 56);
+    display.print("IP: ");
+    display.print(WiFi.localIP().toString());
+    display.display();
+    
+    server.send(200, "text/plain", "OK");
+  } else {
+    server.send(400, "text/plain", "Missing 'val' parameter");
+  }
+}
+
+// REST HTTP E-Stop command handler
+void handleEStop() {
+  setCORSHeaders();
+  Serial.println("EMERGENCY STOP ENFORCED!");
+  
+  // Forward E-Stop to Arduino Uno
+  Serial1.println("MOVE:stop:0");
+  Serial1.println("RGB:255:0:0"); // Set to RED
+  
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("SYSTEM STATUS:");
+  display.setTextSize(2);
+  display.setCursor(0, 20);
+  display.println("!! ESTOP !!");
+  display.setTextSize(1);
+  display.setCursor(0, 56);
+  display.print("IP: ");
+  display.print(WiFi.localIP().toString());
+  display.display();
+  
+  server.send(200, "text/plain", "OK");
+}
+
+
 // Package and stream telemetry packages over active WebSocket connection
 void sendTelemetry() {
   if (!wsConnected) return;
@@ -778,6 +879,10 @@ void setup() {
   server.on("/flash", HTTP_GET, handleFlash);
   server.on("/capture", HTTP_GET, handleCapture);
   server.on("/ws", HTTP_GET, handleWebSocketHandshake);
+  server.on("/move", HTTP_GET, handleMove);
+  server.on("/speed", HTTP_GET, handleSpeed);
+  server.on("/mode", HTTP_GET, handleMode);
+  server.on("/estop", HTTP_GET, handleEStop);
 
   server.on("/status", HTTP_OPTIONS, handleOptions);
   server.on("/headlight", HTTP_OPTIONS, handleOptions);
@@ -785,6 +890,10 @@ void setup() {
   server.on("/display", HTTP_OPTIONS, handleOptions);
   server.on("/flash", HTTP_OPTIONS, handleOptions);
   server.on("/capture", HTTP_OPTIONS, handleOptions);
+  server.on("/move", HTTP_OPTIONS, handleOptions);
+  server.on("/speed", HTTP_OPTIONS, handleOptions);
+  server.on("/mode", HTTP_OPTIONS, handleOptions);
+  server.on("/estop", HTTP_OPTIONS, handleOptions);
 
   server.begin();
   Serial.println("HTTP Server active on port 80");

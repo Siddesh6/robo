@@ -84,6 +84,7 @@ let wsInstance: WebSocket | null = null;
 let mockInterval: any = null;
 let reconnectTimeout: any = null;
 let uptimeInterval: any = null;
+let telemetryInterval: any = null;
 
 const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
@@ -343,37 +344,47 @@ export const useAppStore = create<AppStore>((set, get) => {
         return true;
       }
 
-      // Clear any existing connection
-      if (wsInstance) {
-        wsInstance.close();
-        wsInstance = null;
-      }
       stopSimulator();
+      stopTelemetryPolling();
 
       return new Promise<boolean>((resolve) => {
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-          fetch(getTargetUrl(targetIp, '/status'), { 
-            method: 'GET',
-            mode: 'cors',
-            signal: controller.signal 
+        fetch(getTargetUrl(targetIp, '/status'), { 
+          method: 'GET',
+          mode: 'cors',
+          signal: controller.signal 
+        })
+          .then(async (res) => {
+            clearTimeout(timeoutId);
+            if (res.ok) {
+              const data = await res.json();
+              set({ 
+                status: 'connected', 
+                wsConnected: true, 
+                errorMsg: null,
+                isMockMode: false
+              });
+              get().receiveTelemetry(data);
+              get().addLog('Connected to physical robot controller (HTTP Mode)', 'info');
+              get().addLog('Motors ready', 'info');
+              get().addLog('All systems normal', 'info');
+              
+              startUptimeTick();
+              startTelemetryPolling(targetIp);
+              resolve(true);
+            } else {
+              throw new Error(`HTTP status check returned code ${res.status}`);
+            }
           })
-            .then(() => {
-              clearTimeout(timeoutId);
-              setupWebSocket(targetIp, resolve);
-            })
-            .catch((err) => {
-              clearTimeout(timeoutId);
-              console.warn('HTTP handshake failed, attempting WebSocket directly anyway...', err);
-              setupWebSocket(targetIp, resolve);
-            });
-        } catch (e) {
-          set({ status: 'disconnected', errorMsg: 'Connection Failed' });
-          get().addLog('Connection handshake failed', 'error');
-          resolve(false);
-        }
+          .catch((err) => {
+            clearTimeout(timeoutId);
+            console.error('Connection handshake failed:', err);
+            set({ status: 'disconnected', errorMsg: 'Connection Failed' });
+            get().addLog('Connection handshake failed', 'error');
+            resolve(false);
+          });
       });
     },
 
@@ -381,70 +392,87 @@ export const useAppStore = create<AppStore>((set, get) => {
       get().addLog('Robot connection manually closed', 'warn');
       set({ status: 'disconnected', wsConnected: false, isMockMode: false });
       stopSimulator();
-      if (wsInstance) {
-        wsInstance.close();
-        wsInstance = null;
-      }
+      stopTelemetryPolling();
       if (reconnectTimeout) {
         clearTimeout(reconnectTimeout);
         reconnectTimeout = null;
       }
     },
 
-    setSpeed: (speed) => {
-      set((state) => {
-        const updated = { ...state.robot, speed };
-        sendWebSocketCommand({ type: 'speed', speed });
-        return { robot: updated };
-      });
+    setSpeed: async (speed) => {
+      set((state) => ({ robot: { ...state.robot, speed } }));
       get().addLog(`Target motor speed throttled to ${speed}%`, 'info');
+      if (get().isMockMode) return;
+      try {
+        await fetch(getTargetUrl(get().settings.ip, `/speed?val=${speed}`), {
+          method: 'GET',
+          mode: 'cors'
+        });
+      } catch (err) {
+        console.error('Failed to send speed command:', err);
+      }
     },
 
-    setDirection: (direction) => {
+    setDirection: async (direction) => {
+      let currentSpeed = 80;
       set((state) => {
         if (state.robot.isEmergencyStopped && direction !== 'stop') {
           return state;
         }
-        
-        const updated = { ...state.robot, direction };
-        sendWebSocketCommand({ 
-          type: 'move', 
-          direction, 
-          speed: state.robot.speed 
-        });
-        
-        return { robot: updated };
+        currentSpeed = state.robot.speed;
+        return { robot: { ...state.robot, direction } };
       });
+      if (get().robot.isEmergencyStopped && direction !== 'stop') return;
+      
       if (direction !== 'stop') {
         get().addLog(`Driving movement command: ${direction.toUpperCase()}`, 'info');
       } else {
         get().addLog('Robot drive brakes engaged', 'info');
       }
+
+      if (get().isMockMode) return;
+      try {
+        await fetch(getTargetUrl(get().settings.ip, `/move?dir=${direction}&speed=${currentSpeed}`), {
+          method: 'GET',
+          mode: 'cors'
+        });
+      } catch (err) {
+        console.error('Failed to send move command:', err);
+      }
     },
 
-    setMode: (mode) => {
-      set((state) => {
-        const updated = { ...state.robot, mode };
-        sendWebSocketCommand({ type: 'mode', mode });
-        return { robot: updated };
-      });
+    setMode: async (mode) => {
+      set((state) => ({ robot: { ...state.robot, mode } }));
       get().addLog(`Navigation profile changed to: ${mode.toUpperCase()}`, 'info');
+      if (get().isMockMode) return;
+      try {
+        await fetch(getTargetUrl(get().settings.ip, `/mode?val=${mode}`), {
+          method: 'GET',
+          mode: 'cors'
+        });
+      } catch (err) {
+        console.error('Failed to send mode command:', err);
+      }
     },
 
-    triggerEmergencyStop: () => {
-      set((state) => {
-        const updated = { 
+    triggerEmergencyStop: async () => {
+      set((state) => ({ 
+        robot: { 
           ...state.robot, 
           isEmergencyStopped: true,
           direction: 'stop' as Direction
-        };
-        
-        sendWebSocketCommand({ type: 'move', direction: 'stop', speed: 0 });
-        sendWebSocketCommand({ type: 'estop' });
-        
-        return { robot: updated };
-      });
+        } 
+      }));
       get().addLog('EMERGENCY STOP TRIGGERED - DRIVE TRAIN DISENGAGED', 'error');
+      if (get().isMockMode) return;
+      try {
+        await fetch(getTargetUrl(get().settings.ip, `/estop`), {
+          method: 'GET',
+          mode: 'cors'
+        });
+      } catch (err) {
+        console.error('Failed to send estop command:', err);
+      }
     },
 
     toggleFlash: async () => {
@@ -565,88 +593,41 @@ export const useAppStore = create<AppStore>((set, get) => {
   };
 });
 
-// Helper to configure WebSocket connection
-const setupWebSocket = (ip: string, resolve: (val: boolean) => void) => {
+// Helper to configure telemetry polling connection
+const startTelemetryPolling = (ip: string) => {
+  if (telemetryInterval) clearInterval(telemetryInterval);
   const store = useAppStore.getState();
-  // WebSocket connection setup
   
-  try {
-    wsInstance = new WebSocket(getWebSocketUrl(ip));
+  telemetryInterval = setInterval(async () => {
+    // Only poll if connected and not in mock/simulator mode
+    if (useAppStore.getState().status !== 'connected' || useAppStore.getState().isMockMode) {
+      clearInterval(telemetryInterval);
+      telemetryInterval = null;
+      return;
+    }
     
-    wsInstance.onopen = () => {
-      console.log('WebSocket successfully established!');
-      useAppStore.setState({ 
-        status: 'connected', 
-        wsConnected: true, 
-        errorMsg: null,
-        isMockMode: false
+    try {
+      const res = await fetch(getTargetUrl(ip, '/status'), {
+        method: 'GET',
+        mode: 'cors'
       });
-      store.addLog('Connected to physical robot controller', 'info');
-      store.addLog('WebSocket session opened', 'info');
-      store.addLog('Motors ready', 'info');
-      store.addLog('All systems normal', 'info');
-      startUptimeTick();
-      resolve(true);
-    };
-    
-    wsInstance.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'telemetry') {
-          useAppStore.getState().receiveTelemetry(data);
-        } else if (data.type === 'log') {
-          useAppStore.getState().addLog(data.message, data.logType || 'info');
-        } else if (data.battery !== undefined) {
-          useAppStore.getState().receiveTelemetry(data);
-        }
-      } catch (err) {
-        console.warn('Unknown message format received over WebSocket:', event.data);
-      }
-    };
-    
-    wsInstance.onclose = (event) => {
-      console.warn('WebSocket connection closed:', event.reason);
-      const isWasConnected = useAppStore.getState().status === 'connected';
-      
-      useAppStore.setState({ wsConnected: false });
-      stopUptimeTick();
-      
-      if (useAppStore.getState().settings.reconnectAuto && isWasConnected) {
-        useAppStore.setState({ status: 'reconnecting', errorMsg: 'Connection lost. Reconnecting...' });
-        store.addLog('Robot connection lost. Reconnecting...', 'warn');
-        
-        if (reconnectTimeout) clearTimeout(reconnectTimeout);
-        reconnectTimeout = setTimeout(() => {
-          store.connect(ip);
-        }, 3000);
+      if (res.ok) {
+        const data = await res.json();
+        useAppStore.setState({ wsConnected: true, errorMsg: null });
+        useAppStore.getState().receiveTelemetry(data);
       } else {
-        useAppStore.setState({ status: 'disconnected' });
-        store.addLog('WebSocket connection closed', 'warn');
+        useAppStore.setState({ wsConnected: false });
       }
-      resolve(false);
-    };
-
-    wsInstance.onerror = (err) => {
-      console.error('WebSocket Error:', err);
-    };
-  } catch (err) {
-    console.error('Failed to construct WebSocket client:', err);
-    useAppStore.setState({ status: 'disconnected', errorMsg: 'WS Client Init Failed' });
-    resolve(false);
-  }
+    } catch (e) {
+      console.warn('Telemetry poll failed:', e);
+      useAppStore.setState({ wsConnected: false });
+    }
+  }, 1500);
 };
 
-// Send command via WebSocket
-const sendWebSocketCommand = (command: object) => {
-  const store = useAppStore.getState();
-  if (store.isMockMode) {
-    console.log('[SIMULATOR CMD SEND]', JSON.stringify(command));
-    return;
-  }
-  
-  if (wsInstance && wsInstance.readyState === WebSocket.OPEN) {
-    wsInstance.send(JSON.stringify(command));
-  } else {
-    console.warn('Cannot send command. WebSocket is not open.');
+const stopTelemetryPolling = () => {
+  if (telemetryInterval) {
+    clearInterval(telemetryInterval);
+    telemetryInterval = null;
   }
 };
