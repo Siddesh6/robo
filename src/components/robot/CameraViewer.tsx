@@ -76,7 +76,10 @@ const CameraViewer: React.FC<CameraViewerProps> = ({
   };
 
   // Real ESP32 CAM Stream URL
-  const streamUrl = `http://${settings.ip}:81/stream`;
+  const isLocalDev = import.meta.env.DEV;
+  const streamUrl = isLocalDev
+    ? `/esp32-stream/${settings.ip}/stream`
+    : `http://${settings.ip}:81/stream`;
   const showStream = status === 'connected' && !hasError;
 
   const resolutionOptions: { label: string; value: CameraResolution }[] = [
