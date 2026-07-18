@@ -186,12 +186,13 @@ button:hover{background:#0369a1;}
 <body>
 <h1>RoboCore ESP32-CAM Controller</h1>
 <p>Firmware Running Successfully</p>
-<p>Live Video Stream Port 81: <a href="http://10.169.247.195:81/stream" style="color:#38bdf8;">/stream</a></p>
+<p>Live Video Stream Port 81: <a href="http://__IP__:81/stream" style="color:#38bdf8;">/stream</a></p>
 <button onclick="fetch('/headlight?val=1')">LED ON</button>
 <button onclick="fetch('/headlight?val=0')">LED OFF</button>
 </body>
 </html>
 )rawliteral";
+  html.replace("__IP__", WiFi.localIP().toString());
   server.send(200, "text/html", html);
 }
 

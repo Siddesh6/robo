@@ -62,7 +62,7 @@ interface AppStore {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  ip: '10.169.247.195',
+  ip: '10.169.247.176',
   name: 'Rover-01',
   resolution: 'vga',
   quality: 'high',
@@ -85,17 +85,19 @@ let mockInterval: any = null;
 let reconnectTimeout: any = null;
 let uptimeInterval: any = null;
 
+const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
 const getTargetUrl = (ip: string, path: string): string => {
-  if (ip === '10.169.247.195') {
-    return `/esp32-api${path}`;
+  if (isLocalDev) {
+    return `/esp32-api/${ip}${path}`;
   }
   return `http://${ip}${path}`;
 };
 
 const getWebSocketUrl = (ip: string): string => {
-  if (ip === '10.169.247.195') {
+  if (isLocalDev) {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}/esp32-ws/ws`;
+    return `${protocol}//${window.location.host}/esp32-ws/${ip}/ws`;
   }
   return `ws://${ip}/ws`;
 };
@@ -566,20 +568,7 @@ export const useAppStore = create<AppStore>((set, get) => {
 // Helper to configure WebSocket connection
 const setupWebSocket = (ip: string, resolve: (val: boolean) => void) => {
   const store = useAppStore.getState();
-  
-  if (ip === '10.169.247.195') {
-    useAppStore.setState({ 
-      status: 'connected', 
-      wsConnected: true, 
-      errorMsg: null,
-      isMockMode: false
-    });
-    store.addLog('Connected to ESP32 DevKit (HTTP-only mode)', 'info');
-    store.addLog('Headlight controls mapped to built-in LED (GPIO 2)', 'info');
-    startUptimeTick();
-    resolve(true);
-    return;
-  }
+  // WebSocket connection setup
   
   try {
     wsInstance = new WebSocket(getWebSocketUrl(ip));

@@ -7,19 +7,40 @@ export default defineConfig({
   server: {
     proxy: {
       '/esp32-api': {
-        target: 'http://10.169.247.195',
+        target: 'http://localhost', // dummy target, overridden by router
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/esp32-api/, ''),
+        router: (req) => {
+          const match = req.url.match(/^\/esp32-api\/([\d\.]+)/);
+          if (match) {
+            return `http://${match[1]}`;
+          }
+          return 'http://10.169.247.176'; // default fallback IP
+        },
+        rewrite: (path) => path.replace(/^\/esp32-api\/[\d\.]+/, ''),
       },
       '/esp32-ws': {
-        target: 'ws://10.169.247.195',
+        target: 'ws://localhost',
         ws: true,
-        rewrite: (path) => path.replace(/^\/esp32-ws/, ''),
+        router: (req) => {
+          const match = req.url.match(/^\/esp32-ws\/([\d\.]+)/);
+          if (match) {
+            return `ws://${match[1]}`;
+          }
+          return 'ws://10.169.247.176'; // default fallback IP
+        },
+        rewrite: (path) => path.replace(/^\/esp32-ws\/[\d\.]+/, ''),
       },
       '/esp32-stream': {
-        target: 'http://10.169.247.195:81',
+        target: 'http://localhost',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/esp32-stream/, ''),
+        router: (req) => {
+          const match = req.url.match(/^\/esp32-stream\/([\d\.]+)/);
+          if (match) {
+            return `http://${match[1]}:81`;
+          }
+          return 'http://10.169.247.176:81'; // default fallback IP
+        },
+        rewrite: (path) => path.replace(/^\/esp32-stream\/[\d\.]+/, ''),
       }
     }
   }
