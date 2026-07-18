@@ -670,6 +670,7 @@ void handleStream() {
     camera_fb_t* fb = safe_get_fb();
     if (!fb) {
       Serial.println("Camera capture failed (busy or uninitialized)");
+      server.handleClient(); // Let port 80 requests execute
       delay(100);
       continue;
     }
@@ -691,6 +692,12 @@ void handleStream() {
     }
     
     safe_return_fb(fb);
+    
+    // Let the main web server process client requests (e.g. movement, speed, status)
+    server.handleClient();
+    
+    // Give the CPU and network stack some breathing room to avoid port 80 timeout
+    delay(40);
     yield();
   }
   
