@@ -8,8 +8,11 @@ export default defineConfig({
   server: {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        if (req.url && req.url.startsWith('/esp32-api/')) {
-          const match = req.url.match(/^\/esp32-api\/([\d\.]+)(.*)/);
+        const url = req.originalUrl || req.url || '';
+        console.log(`[Proxy Debug] Incoming URL: "${url}" (original: "${req.originalUrl}", url: "${req.url}")`);
+        
+        if (url.startsWith('/esp32-api/')) {
+          const match = url.match(/^\/esp32-api\/([\d\.]+)(.*)/);
           if (match) {
             const ip = match[1];
             const targetPath = match[2] || '/';
@@ -37,8 +40,8 @@ export default defineConfig({
           }
         }
         
-        if (req.url && req.url.startsWith('/esp32-stream/')) {
-          const match = req.url.match(/^\/esp32-stream\/([\d\.]+)(.*)/);
+        if (url.startsWith('/esp32-stream/')) {
+          const match = url.match(/^\/esp32-stream\/([\d\.]+)(.*)/);
           if (match) {
             const ip = match[1];
             const targetPath = match[2] || '/';
