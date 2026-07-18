@@ -8,7 +8,10 @@ import {
   FiCompass, 
   FiThermometer, 
   FiDroplet, 
-  FiRadio 
+  FiRadio,
+  FiUser,
+  FiAlertTriangle,
+  FiActivity
 } from 'react-icons/fi';
 
 const SensorsPage: React.FC = () => {
@@ -21,6 +24,8 @@ const SensorsPage: React.FC = () => {
   const [humidityHistory, setHumidityHistory] = useState<number[]>([]);
   const [wifiHistory, setWifiHistory] = useState<number[]>([]);
   const [soilHistory, setSoilHistory] = useState<number[]>([]);
+  const [gasHistory, setGasHistory] = useState<number[]>([]);
+  const [heatHistory, setHeatHistory] = useState<number[]>([]);
 
   // Append new telemetry readings to history
   useEffect(() => {
@@ -40,6 +45,8 @@ const SensorsPage: React.FC = () => {
     setHumidityHistory(prev => append(prev, telemetry.humidity));
     setWifiHistory(prev => append(prev, telemetry.wifi));
     setSoilHistory(prev => append(prev, telemetry.soilMoisture || 0));
+    setGasHistory(prev => append(prev, telemetry.mq5Gas || 0));
+    setHeatHistory(prev => append(prev, telemetry.heatFlux || 0));
 
   }, [telemetry, status]);
 
@@ -52,6 +59,8 @@ const SensorsPage: React.FC = () => {
       setHumidityHistory(Array(15).fill(telemetry.humidity));
       setWifiHistory(Array(15).fill(telemetry.wifi));
       setSoilHistory(Array(15).fill(telemetry.soilMoisture || 0));
+      setGasHistory(Array(15).fill(telemetry.mq5Gas || 120));
+      setHeatHistory(Array(15).fill(telemetry.heatFlux || 150));
     }
   }, []);
 
@@ -201,6 +210,60 @@ const SensorsPage: React.FC = () => {
           <Card className="py-3 px-4">
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-2">Moisture History</span>
             <Sparkline data={soilHistory} color={(telemetry.soilMoisture || 0) < 30 ? '#fbbf24' : '#34d399'} />
+          </Card>
+        </div>
+
+        {/* PIR Motion Sensor Card */}
+        <div className="space-y-3">
+          <SensorCard
+            title="PIR Motion Detection"
+            value={telemetry.pir ? 'ACTIVE' : 'IDLE'}
+            unit=""
+            icon={<FiUser className={telemetry.pir ? 'text-rose-400 animate-pulse' : 'text-slate-400'} />}
+            status={telemetry.pir ? 'critical' : 'good'}
+            statusText={telemetry.pir ? 'MOTION DETECTED - INTRUDER ALERT' : 'SECURE / NO MOTION DETECTED'}
+          />
+          <Card className="py-3 px-4">
+            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-2">Sensor Information</span>
+            <div className="text-xs text-slate-400 font-medium py-1">
+              {telemetry.pir ? (
+                <span className="text-accent-rose font-bold">⚠️ Warning: Active security event flagged on Arduino Uno.</span>
+              ) : (
+                <span>No infrared movement signatures detected.</span>
+              )}
+            </div>
+          </Card>
+        </div>
+
+        {/* MQ5 Gas Sensor Card */}
+        <div className="space-y-3">
+          <SensorCard
+            title="MQ5 Gas / Smoke"
+            value={telemetry.mq5Gas || 0}
+            unit="ppm"
+            icon={<FiAlertTriangle className={(telemetry.mq5Gas || 0) > 150 ? 'text-amber-400' : 'text-slate-400'} />}
+            status={(telemetry.mq5Gas || 0) >= 250 ? 'critical' : (telemetry.mq5Gas || 0) >= 150 ? 'warning' : 'good'}
+            statusText={(telemetry.mq5Gas || 0) >= 250 ? 'DANGER: EXTREME GAS LEVEL' : (telemetry.mq5Gas || 0) >= 150 ? 'WARNING: SUSPICIOUS SMOKE/GAS' : 'GAS DENSITY OK'}
+          />
+          <Card className="py-3 px-4">
+            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-2">Smoke Density Waveform</span>
+            <Sparkline data={gasHistory} color={(telemetry.mq5Gas || 0) >= 250 ? '#f87171' : (telemetry.mq5Gas || 0) >= 150 ? '#fbbf24' : '#34d399'} />
+          </Card>
+        </div>
+
+        {/* Heat Flux Density Card */}
+        <div className="space-y-3">
+          <SensorCard
+            title="Heat Flux Density"
+            value={telemetry.heatFlux || 0}
+            unit="W/m²"
+            icon={<FiActivity className={(telemetry.heatFlux || 0) > 220 ? 'text-rose-400 animate-pulse' : 'text-slate-400'} />}
+            status={(telemetry.heatFlux || 0) >= 300 ? 'critical' : (telemetry.heatFlux || 0) >= 220 ? 'warning' : 'good'}
+            statusText={(telemetry.heatFlux || 0) >= 300 ? 'CRITICAL THERMAL RADIATION' : (telemetry.heatFlux || 0) >= 220 ? 'ELEVATED HEAT SIGNATURE' : 'THERMAL ENVELOPE NORMAL'}
+          />
+          <Card className="py-3 px-4">
+            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-2">Radiation Waveform</span>
+            <Sparkline data={heatHistory} color={(telemetry.heatFlux || 0) >= 300 ? '#f87171' : (telemetry.heatFlux || 0) >= 220 ? '#fbbf24' : '#38bdf8'} />
           </Card>
         </div>
 

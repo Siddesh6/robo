@@ -158,6 +158,15 @@ WiFiClient wsClient;
 bool wsConnected = false;
 unsigned long lastTelemetryTime = 0;
 
+// Cached telemetry variables from Arduino Uno
+int cachedDistance = 80;
+int cachedPir = 0;
+int cachedSoilMoisture = 45;
+int cachedMq5Gas = 120;
+int cachedHeatFlux = 150;
+float cachedTemperature = 28.0;
+float cachedHumidity = 42.0;
+
 // Camera and Synchronization state
 bool cameraInitSuccess = false;
 SemaphoreHandle_t camSemaphore = NULL;
@@ -200,8 +209,19 @@ button:hover{background:#0369a1;}
 void handleStatus() {
   setCORSHeaders();
   long rssi = WiFi.RSSI();
-  // Return JSON status / telemetry information with camera initialization diagnosis flag
-  String json = "{\"battery\": 12.4, \"distance\": 85, \"temperature\": 28.5, \"humidity\": 42.0, \"wifi\": " + String(rssi) + ", \"camera_init\": " + (cameraInitSuccess ? "true" : "false") + ", \"arduinoConnected\": " + ((millis() - lastTelemetryTime < 2000) ? "true" : "false") + "}";
+  float battery = 11.5 + ((float)random(0, 150) / 100.0); // Simulated battery
+  
+  String json = "{\"battery\":" + String(battery, 2) + 
+                ",\"distance\":" + String(cachedDistance) + 
+                ",\"pir\":" + String(cachedPir) + 
+                ",\"soilMoisture\":" + String(cachedSoilMoisture) + 
+                ",\"mq5Gas\":" + String(cachedMq5Gas) + 
+                ",\"heatFlux\":" + String(cachedHeatFlux) + 
+                ",\"temperature\":" + String(cachedTemperature, 1) + 
+                ",\"humidity\":" + String(cachedHumidity, 1) + 
+                ",\"wifi\":" + String(rssi) + 
+                ",\"camera_init\":" + (cameraInitSuccess ? "true" : "false") + 
+                ",\"arduinoConnected\":" + ((millis() - lastTelemetryTime < 3000) ? "true" : "false") + "}";
   server.send(200, "application/json", json);
 }
 
@@ -627,6 +647,23 @@ void handleEStop() {
   server.send(200, "text/plain", "OK");
 }
 
+// REST HTTP RGB control handler
+void handleRGB() {
+  setCORSHeaders();
+  if (server.hasArg("r") && server.hasArg("g") && server.hasArg("b")) {
+    int r = server.arg("r").toInt();
+    int g = server.arg("g").toInt();
+    int b = server.arg("b").toInt();
+    
+    Serial.printf("RGB Control: R=%d, G=%d, B=%d\n", r, g, b);
+    Serial1.printf("RGB:%d:%d:%d\n", r, g, b);
+    
+    server.send(200, "text/plain", "RGB Updated");
+  } else {
+    server.send(400, "text/plain", "Missing RGB parameters");
+  }
+}
+
 
 // Package and stream telemetry packages over active WebSocket connection
 void sendTelemetry() {
@@ -705,72 +742,114 @@ void handleStream() {
 }
 
 // Parses telemetry packets from Arduino Uno and broadcasts to React Client
+// Parses telemetry packets from Arduino Uno and updates cached values
 void parseUnoPacket(String packet) {
   packet.trim();
   if (packet.startsWith("TELE:")) {
     lastTelemetryTime = millis();
     String data = packet.substring(5);
     
-    int colon1 = data.indexOf(':');
-    if (colon1 == -1) return;
-    String distStr = data.substring(0, colon1);
+    // Count how many colons exist to determine format
+    int colonCount = 0;
+    int idx = 0;
+    while ((idx = data.indexOf(':', idx)) != -1) {
+      colonCount++;
+      idx++;
+    }
     
-    String sub1 = data.substring(colon1 + 1);
-    int colon2 = sub1.indexOf(':');
-    if (colon2 == -1) return;
-    String pirStr = sub1.substring(0, colon2);
+    int distance = 80;
+    int pir = 0;
+    int soil = 45;
+    int mq5 = 120;
+    int heatFlux = 150;
+    float dhtTemp = 28.0;
+    float dhtHum = 42.0;
     
-    String sub2 = sub1.substring(colon2 + 1);
-    int colon3 = sub2.indexOf(':');
-    if (colon3 == -1) return;
-    String soilStr = sub2.substring(0, colon3);
+    if (colonCount == 5) {
+      // Old format: TELE:distance:pir:soilMoisture:flame:temperature:humidity
+      int colon1 = data.indexOf(':');
+      String distStr = data.substring(0, colon1);
+      
+      String sub1 = data.substring(colon1 + 1);
+      int colon2 = sub1.indexOf(':');
+      String pirStr = sub1.substring(0, colon2);
+      
+      String sub2 = sub1.substring(colon2 + 1);
+      int colon3 = sub2.indexOf(':');
+      String soilStr = sub2.substring(0, colon3);
+      
+      String sub3 = sub2.substring(colon3 + 1);
+      int colon4 = sub3.indexOf(':');
+      String flameStr = sub3.substring(0, colon4);
+      
+      String sub4 = sub3.substring(colon4 + 1);
+      int colon5 = sub4.indexOf(':');
+      String tempStr = sub4.substring(0, colon5);
+      String humStr = sub4.substring(colon5 + 1);
+      
+      distance = distStr.toInt();
+      pir = pirStr.toInt();
+      soil = soilStr.toInt();
+      int flame = flameStr.toInt();
+      dhtTemp = tempStr.toFloat();
+      dhtHum = humStr.toFloat();
+      
+      // Map flame sensor to heatFlux and mq5Gas proxy values
+      heatFlux = flame ? 450 : 150;
+      mq5 = flame ? 350 : 120;
+      
+    } else if (colonCount >= 6) {
+      // New format: TELE:distance:pir:soilMoisture:mq5Gas:heatFlux:temperature:humidity
+      int colons[10];
+      int count = 0;
+      int searchIdx = 0;
+      while ((searchIdx = data.indexOf(':', searchIdx)) != -1 && count < 10) {
+        colons[count++] = searchIdx;
+        searchIdx++;
+      }
+      
+      if (count >= 6) {
+        String distStr = data.substring(0, colons[0]);
+        String pirStr = data.substring(colons[0] + 1, colons[1]);
+        String soilStr = data.substring(colons[1] + 1, colons[2]);
+        String mq5Str = data.substring(colons[2] + 1, colons[3]);
+        String heatStr = data.substring(colons[3] + 1, colons[4]);
+        String tempStr = data.substring(colons[4] + 1, colons[5]);
+        String humStr = data.substring(colons[5] + 1);
+        
+        distance = distStr.toInt();
+        pir = pirStr.toInt();
+        soil = soilStr.toInt();
+        mq5 = mq5Str.toInt();
+        heatFlux = heatStr.toInt();
+        dhtTemp = tempStr.toFloat();
+        dhtHum = humStr.toFloat();
+      }
+    }
     
-    String sub3 = sub2.substring(colon3 + 1);
-    int colon4 = sub3.indexOf(':');
-    if (colon4 == -1) return;
-    String flameStr = sub3.substring(0, colon4);
+    // Update global variables
+    cachedDistance = distance;
+    cachedPir = pir;
+    cachedSoilMoisture = soil;
+    cachedMq5Gas = mq5;
+    cachedHeatFlux = heatFlux;
+    cachedTemperature = dhtTemp;
+    cachedHumidity = dhtHum;
     
-    String sub4 = sub3.substring(colon4 + 1);
-    int colon5 = sub4.indexOf(':');
-    if (colon5 == -1) return;
-    String dhtTempStr = sub4.substring(0, colon5);
-    String dhtHumStr = sub4.substring(colon5 + 1);
-    
-    int distance = distStr.toInt();
-    int pir = pirStr.toInt();
-    int soil = soilStr.toInt();
-    int flame = flameStr.toInt();
-    float dhtTemp = dhtTempStr.toFloat();
-    float dhtHum = dhtHumStr.toFloat();
-    
+    // Send Telemetry JSON to client
     long rssi = WiFi.RSSI();
     float battery = 11.5 + ((float)random(0, 150) / 100.0);
-    
-    // Send Telemetry JSON to React client (with DHT11 temp/humidity and separate soilMoisture!)
     String json = "{\"type\":\"telemetry\",\"battery\":" + String(battery, 2) + 
                   ",\"distance\":" + String(distance) + 
+                  ",\"pir\":" + String(pir) + 
+                  ",\"soilMoisture\":" + String(soil) + 
+                  ",\"mq5Gas\":" + String(mq5) + 
+                  ",\"heatFlux\":" + String(heatFlux) + 
                   ",\"temperature\":" + String(dhtTemp, 1) + 
                   ",\"humidity\":" + String(dhtHum, 1) + 
-                  ",\"soilMoisture\":" + String(soil) + 
                   ",\"arduinoConnected\":true" +
                   ",\"wifi\":" + String(rssi) + "}";
     sendWebSocketText(json);
-    
-    // Alert detection transitions
-    static bool prevPir = false;
-    static bool prevFlame = false;
-    
-    if (pir == 1 && !prevPir) {
-      String pirJson = "{\"type\":\"log\",\"message\":\"[ALERT] PIR Motion Sensor Triggered!\",\"logType\":\"warn\"}";
-      sendWebSocketText(pirJson);
-    }
-    prevPir = (pir == 1);
-    
-    if (flame == 1 && !prevFlame) {
-      String flameJson = "{\"type\":\"log\",\"message\":\"[ALERT] Fire/Flame Hazard detected!\",\"logType\":\"error\"}";
-      sendWebSocketText(flameJson);
-    }
-    prevFlame = (flame == 1);
   }
 }
 
@@ -890,6 +969,7 @@ void setup() {
   server.on("/speed", HTTP_GET, handleSpeed);
   server.on("/mode", HTTP_GET, handleMode);
   server.on("/estop", HTTP_GET, handleEStop);
+  server.on("/rgb", HTTP_GET, handleRGB);
 
   server.on("/status", HTTP_OPTIONS, handleOptions);
   server.on("/headlight", HTTP_OPTIONS, handleOptions);
@@ -901,6 +981,7 @@ void setup() {
   server.on("/speed", HTTP_OPTIONS, handleOptions);
   server.on("/mode", HTTP_OPTIONS, handleOptions);
   server.on("/estop", HTTP_OPTIONS, handleOptions);
+  server.on("/rgb", HTTP_OPTIONS, handleOptions);
 
   server.begin();
   Serial.println("HTTP Server active on port 80");

@@ -34,6 +34,9 @@ interface AppStore {
   // Camera State
   camera: CameraState;
 
+  // RGB state
+  rgbColor: { r: number; g: number; b: number };
+
   // Additional elements from mockup
   logs: LogEntry[];
   headlight: boolean;
@@ -59,6 +62,7 @@ interface AppStore {
   toggleHeadlight: () => Promise<void>;
   triggerHorn: () => Promise<void>;
   sendOLEDMessage: (text: string) => Promise<boolean>;
+  setRGBColor: (r: number, g: number, b: number) => Promise<void>;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -78,6 +82,9 @@ const INITIAL_TELEMETRY: Telemetry = {
   wifi: -55,
   soilMoisture: 45,
   arduinoConnected: false,
+  pir: false,
+  mq5Gas: 120,
+  heatFlux: 150,
 };
 
 let wsInstance: WebSocket | null = null;
@@ -238,6 +245,16 @@ export const useAppStore = create<AppStore>((set, get) => {
       const tempVariation = (Math.random() - 0.5) * 0.4;
       const humVariation = (Math.random() - 0.5) * 0.5;
       const wifiVariation = Math.random() > 0.7 ? (Math.random() - 0.5) * 4 : 0;
+      
+      const pirActive = Math.random() > 0.93; // 7% chance of motion alert
+      if (pirActive) {
+        get().addLog('[ALERT] PIR Motion Sensor Triggered!', 'warn');
+      }
+
+      const rawGas = Math.round(130 + Math.sin(tick / 20) * 15 + (Math.random() - 0.5) * 4);
+      if (rawGas > 142 && Math.random() > 0.8) {
+        get().addLog(`[WARNING] MQ5 Gas Sensor Level High: ${rawGas} ppm`, 'warn');
+      }
 
       set({
         telemetry: {
@@ -248,6 +265,9 @@ export const useAppStore = create<AppStore>((set, get) => {
           wifi: Math.max(-85, Math.min(-30, Math.round(telemetry.wifi + wifiVariation))),
           soilMoisture: Math.round(50 + Math.sin(tick / 30) * 15),
           arduinoConnected: true,
+          pir: pirActive,
+          mq5Gas: rawGas,
+          heatFlux: Math.round(180 + Math.cos(tick / 25) * 25 + (Math.random() - 0.5) * 6),
         }
       });
     }, 1000);
@@ -268,6 +288,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     wsConnected: false,
     settings: initialSettings,
     telemetry: INITIAL_TELEMETRY,
+    rgbColor: { r: 0, g: 0, b: 0 },
     robot: {
       direction: 'stop',
       speed: 80,
@@ -588,6 +609,20 @@ export const useAppStore = create<AppStore>((set, get) => {
       } catch (err) {
         console.error('Failed to send OLED message:', err);
         return false;
+      }
+    },
+
+    setRGBColor: async (r: number, g: number, b: number) => {
+      set({ rgbColor: { r, g, b } });
+      get().addLog(`RGB color set to R:${r} G:${g} B:${b}`, 'info');
+      if (get().isMockMode) return;
+      try {
+        await fetch(getTargetUrl(get().settings.ip, `/rgb?r=${r}&g=${g}&b=${b}`), {
+          method: 'GET',
+          mode: 'cors'
+        });
+      } catch (err) {
+        console.error('Failed to send RGB command:', err);
       }
     }
   };

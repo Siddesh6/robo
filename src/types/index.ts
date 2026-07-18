@@ -12,6 +12,9 @@ export interface Telemetry {
   wifi: number;         // RSSI, e.g. -48
   soilMoisture: number; // %, e.g. 60
   arduinoConnected?: boolean;
+  pir?: boolean;
+  mq5Gas?: number;
+  heatFlux?: number;
 }
 
 export interface Settings {

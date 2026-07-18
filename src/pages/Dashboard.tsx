@@ -17,7 +17,10 @@ import {
   FiChevronUp,
   FiChevronDown,
   FiChevronLeft,
-  FiChevronRight
+  FiChevronRight,
+  FiAlertTriangle,
+  FiUser,
+  FiActivity
 } from 'react-icons/fi';
 
 const Dashboard: React.FC = () => {
@@ -27,6 +30,7 @@ const Dashboard: React.FC = () => {
     robot, 
     headlight,
     logs,
+    rgbColor,
     setSpeed,
     setDirection,
     setMode, 
@@ -34,7 +38,8 @@ const Dashboard: React.FC = () => {
     triggerEmergencyStop,
     toggleHeadlight,
     triggerHorn,
-    sendOLEDMessage
+    sendOLEDMessage,
+    setRGBColor
   } = useAppStore();
 
   const keysPressed = useKeyboardControls();
@@ -45,6 +50,8 @@ const Dashboard: React.FC = () => {
   const [speedHistory, setSpeedHistory] = useState<number[]>([]);
   const [humidityHistory, setHumidityHistory] = useState<number[]>([]);
   const [soilHistory, setSoilHistory] = useState<number[]>([]);
+  const [gasHistory, setGasHistory] = useState<number[]>([]);
+  const [heatHistory, setHeatHistory] = useState<number[]>([]);
 
   // Append new telemetry readings to history
   useEffect(() => {
@@ -63,6 +70,8 @@ const Dashboard: React.FC = () => {
     setSpeedHistory(prev => append(prev, (robot.speed / 100) * 0.9));
     setHumidityHistory(prev => append(prev, telemetry.humidity));
     setSoilHistory(prev => append(prev, telemetry.soilMoisture || 0));
+    setGasHistory(prev => append(prev, telemetry.mq5Gas || 0));
+    setHeatHistory(prev => append(prev, telemetry.heatFlux || 0));
   }, [telemetry, robot.speed, status]);
 
   // Seed initial values
@@ -72,6 +81,8 @@ const Dashboard: React.FC = () => {
     setSpeedHistory(Array(12).fill((robot.speed / 100) * 0.9));
     setHumidityHistory(Array(12).fill(telemetry.humidity));
     setSoilHistory(Array(12).fill(telemetry.soilMoisture || 0));
+    setGasHistory(Array(12).fill(telemetry.mq5Gas || 120));
+    setHeatHistory(Array(12).fill(telemetry.heatFlux || 150));
   }, []);
 
   const batteryPercent = Math.min(100, Math.max(0, Math.round(((telemetry.battery - 11.0) / 1.6) * 100)));
@@ -246,6 +257,92 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
 
+          {/* Environmental & Safety Monitoring Card */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
+            {/* PIR Motion Sensor Card */}
+            <div className="glass rounded-2xl p-4 border border-white/5 text-left relative overflow-hidden flex flex-col justify-between h-36">
+              <div className="flex justify-between items-start">
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">PIR Motion Sensor</span>
+                  <div className={`text-base font-extrabold tracking-tight ${telemetry.pir ? 'text-accent-rose animate-pulse' : 'text-slate-200'}`}>
+                    {telemetry.pir ? 'MOTION DETECTED' : 'SECURE / NO MOTION'}
+                  </div>
+                </div>
+                <div className={`p-2 rounded-xl border ${
+                  telemetry.pir 
+                    ? 'bg-red-500/10 border-red-500/20 text-red-400' 
+                    : 'bg-slate-900 border-white/5 text-slate-500'
+                }`}>
+                  <FiUser className="text-base" />
+                </div>
+              </div>
+              <div className="text-[10px] text-slate-400 font-medium">
+                {telemetry.pir ? (
+                  <span className="text-accent-rose font-bold">⚠️ Security Intrusion Triggered</span>
+                ) : (
+                  <span>Passive IR monitoring active</span>
+                )}
+              </div>
+            </div>
+
+            {/* MQ5 Gas Sensor Card */}
+            <div className="glass rounded-2xl p-4 border border-white/5 text-left relative overflow-hidden flex flex-col justify-between h-36">
+              <div className="flex justify-between items-start">
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">MQ5 Gas / Smoke</span>
+                  <div className="text-lg font-extrabold font-mono text-slate-200 flex items-baseline gap-0.5">
+                    {telemetry.mq5Gas || 0} <span className="text-[10px] text-slate-500">ppm</span>
+                  </div>
+                </div>
+                <div className={`p-2 rounded-xl border ${
+                  (telemetry.mq5Gas || 0) > 150 
+                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-400 animate-pulse' 
+                    : 'bg-slate-900 border-white/5 text-slate-400'
+                }`}>
+                  <FiAlertTriangle className="text-base" />
+                </div>
+              </div>
+              <div className="w-full space-y-1.5">
+                <div className="flex justify-between items-center text-[9px] text-slate-500 font-bold leading-none">
+                  <span>Smoke Density</span>
+                  <span className={(telemetry.mq5Gas || 0) > 150 ? 'text-accent-amber' : 'text-slate-400'}>
+                    {(telemetry.mq5Gas || 0) > 150 ? 'WARNING: TOXIC LEVEL' : 'CLEAN AIR'}
+                  </span>
+                </div>
+                <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full rounded-full transition-all duration-300 ${
+                      (telemetry.mq5Gas || 0) > 150 ? 'bg-accent-amber' : 'bg-accent-emerald'
+                    }`}
+                    style={{ width: `${Math.min(100, ((telemetry.mq5Gas || 0) / 400) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Heat Flux Sensor Card */}
+            <div className="glass rounded-2xl p-4 border border-white/5 text-left relative overflow-hidden flex flex-col justify-between h-36">
+              <div className="flex justify-between items-start">
+                <div>
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Heat Flux Transducer</span>
+                  <div className="text-lg font-extrabold font-mono text-slate-200 flex items-baseline gap-0.5">
+                    {telemetry.heatFlux || 0} <span className="text-[10px] text-slate-500">W/m²</span>
+                  </div>
+                </div>
+                <div className={`p-2 rounded-xl border ${
+                  (telemetry.heatFlux || 0) > 220 
+                    ? 'bg-red-500/10 border-red-500/20 text-red-400 animate-pulse' 
+                    : 'bg-slate-900 border-white/5 text-slate-400'
+                }`}>
+                  <FiActivity className="text-base" />
+                </div>
+              </div>
+              <div className="w-full">
+                <Sparkline data={heatHistory} color={(telemetry.heatFlux || 0) > 220 ? '#F87171' : '#38bdf8'} height={20} />
+              </div>
+            </div>
+          </div>
+
           {/* OLED Message Board Card */}
           <Card 
             title="OLED Display Board" 
@@ -289,6 +386,68 @@ const Dashboard: React.FC = () => {
                     </button>
                   ))}
                 </div>
+              </div>
+            </div>
+          </Card>
+
+          {/* RGB Light Controller Card */}
+          <Card 
+            title="NeoPixel RGB Controller" 
+            className="border border-white/5 shadow-2xl mt-5"
+          >
+            <div className="p-4 space-y-4">
+              <p className="text-xs text-slate-400">
+                Change the status color indicator of the Arduino Uno's onboard RGB Neopixel module.
+              </p>
+              
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { name: 'Lights OFF', r: 0, g: 0, b: 0, color: 'bg-slate-950 text-slate-500 border-white/5' },
+                  { name: 'Red alert', r: 255, g: 0, b: 0, color: 'bg-red-500/10 text-red-400 border-red-500/20' },
+                  { name: 'Safe Green', r: 0, g: 255, b: 0, color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+                  { name: 'System Blue', r: 0, g: 0, b: 255, color: 'bg-blue-500/10 text-blue-400 border-blue-500/20' },
+                  { name: 'Warning Yellow', r: 255, g: 255, b: 0, color: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' },
+                  { name: 'Purple Beacon', r: 255, g: 0, b: 255, color: 'bg-purple-500/10 text-purple-400 border-purple-500/20' },
+                  { name: 'Cyan Glow', r: 0, g: 255, b: 255, color: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' },
+                  { name: 'White Flash', r: 255, g: 255, b: 255, color: 'bg-white/10 text-white border-white/20' }
+                ].map((preset) => {
+                  const isActive = rgbColor.r === preset.r && rgbColor.g === preset.g && rgbColor.b === preset.b;
+                  return (
+                    <button
+                      key={preset.name}
+                      onClick={() => setRGBColor(preset.r, preset.g, preset.b)}
+                      disabled={status !== 'connected'}
+                      className={`px-3 py-2 border rounded-xl font-bold text-[10px] text-center transition-all ${
+                        isActive 
+                          ? 'border-primary ring-1 ring-primary scale-[0.97] font-extrabold'
+                          : `${preset.color} hover:bg-white/5`
+                      }`}
+                    >
+                      {preset.name}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Custom Color Selector */}
+              <div className="flex items-center gap-3 pt-2 border-t border-white/5">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Custom Spectrum Color</span>
+                <input
+                  type="color"
+                  value={`#${((1 << 24) + (rgbColor.r << 16) + (rgbColor.g << 8) + rgbColor.b).toString(16).slice(1)}`}
+                  onChange={(e) => {
+                    const hex = e.target.value;
+                    const r = parseInt(hex.slice(1, 3), 16);
+                    const g = parseInt(hex.slice(3, 5), 16);
+                    const b = parseInt(hex.slice(5, 7), 16);
+                    setRGBColor(r, g, b);
+                  }}
+                  disabled={status !== 'connected'}
+                  className="w-10 h-6 rounded border border-white/10 cursor-pointer bg-transparent"
+                />
+                <span className="text-xs font-mono font-bold text-slate-300">
+                  rgb({rgbColor.r}, {rgbColor.g}, {rgbColor.b})
+                </span>
               </div>
             </div>
           </Card>
