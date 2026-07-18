@@ -86,20 +86,11 @@ let reconnectTimeout: any = null;
 let uptimeInterval: any = null;
 let telemetryInterval: any = null;
 
-const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-
 const getTargetUrl = (ip: string, path: string): string => {
-  if (isLocalDev) {
-    return `/esp32-api/${ip}${path}`;
-  }
   return `http://${ip}${path}`;
 };
 
 const getWebSocketUrl = (ip: string): string => {
-  if (isLocalDev) {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}/esp32-ws/${ip}/ws`;
-  }
   return `ws://${ip}/ws`;
 };
 
